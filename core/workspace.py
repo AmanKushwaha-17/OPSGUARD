@@ -15,8 +15,12 @@ def create_workspace(repo_path: str) -> str:
     # Create unique temp directory
     workspace_path = tempfile.mkdtemp(prefix="opsguard_")
 
-    # Copy repo contents into workspace
-    shutil.copytree(repo_path, workspace_path, dirs_exist_ok=True)
+    # Copy repo contents into workspace. Clean up partial workspace on failure.
+    try:
+        shutil.copytree(repo_path, workspace_path, dirs_exist_ok=True)
+    except Exception:
+        shutil.rmtree(workspace_path, ignore_errors=True)
+        raise
 
     return workspace_path
 
