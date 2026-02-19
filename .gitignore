@@ -17,3 +17,6 @@ htmlcov/
 
 .idea/
 .vscode/
+
+.env
+artifacts/

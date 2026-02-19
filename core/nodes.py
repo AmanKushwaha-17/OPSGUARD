@@ -3,8 +3,11 @@ from core.workspace import create_workspace
 from core.docker_executor import execute_python
 from core.patch_engine import apply_full_file_patch
 from core.error_classifier import classify_error
+import ast
+import difflib
 import os
 import json
+import subprocess
 from datetime import datetime
 
 
@@ -48,11 +51,6 @@ def setup_workspace_node(state: OpsGuardState) -> OpsGuardState:
 
 
 def generate_reproduction_script_node(state: OpsGuardState) -> OpsGuardState:
-    script_path = os.path.join(state.workspace_path, "reproduce_issue.py")
-
-    # Placeholder deterministic reproduction
-    script_content = state.error_log  # Later replaced by LLM logic
-
     # For now assume app.py reproduction
     state.reproduction_script_path = "app.py"
 
@@ -147,23 +145,87 @@ Fix the bug and return the full corrected file.
 
     from core.llm_client import call_groq_llm, call_nvidia_llm, validate_llm_patch
 
+    def extract_top_level_symbols(source: str) -> set[tuple[str, str]]:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return set()
+
+        symbols = set()
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef):
+                symbols.add(("function", node.name))
+            elif isinstance(node, ast.AsyncFunctionDef):
+                symbols.add(("async_function", node.name))
+            elif isinstance(node, ast.ClassDef):
+                symbols.add(("class", node.name))
+        return symbols
+
+    def looks_incomplete_patch(original: str, candidate: str) -> bool:
+        if not candidate.strip():
+            return True
+
+        original_len = len(original)
+        candidate_len = len(candidate)
+        original_lines = len(original.splitlines())
+        candidate_lines = len(candidate.splitlines())
+
+        # For large files, full-file strategy should preserve most of the file.
+        if original_len >= 2000 and candidate_len < int(original_len * 0.9):
+            return True
+        if original_lines >= 120 and candidate_lines < int(original_lines * 0.9):
+            return True
+
+        original_symbols = extract_top_level_symbols(original)
+        candidate_symbols = extract_top_level_symbols(candidate)
+        if original_symbols:
+            preserved = len(original_symbols & candidate_symbols) / len(original_symbols)
+            if preserved < 0.9:
+                return True
+
+        # Big one-way deletions are typically truncation in this workflow.
+        matcher = difflib.SequenceMatcher(
+            None,
+            original.splitlines(),
+            candidate.splitlines(),
+        )
+        removed_lines = 0
+        added_lines = 0
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag in ("replace", "delete"):
+                removed_lines += (i2 - i1)
+            if tag in ("replace", "insert"):
+                added_lines += (j2 - j1)
+        if removed_lines >= 80 and removed_lines > added_lines * 3:
+            return True
+
+        return False
+
     def try_provider(provider_name: str, provider_fn):
         llm_output = ""
+        rejection_reason = "unknown"
 
-        for attempt in range(2):
+        for attempt in range(3):
             attempt_messages = messages
-            if attempt == 1:
+            if attempt > 0:
                 previous_output = llm_output
                 if len(previous_output) > 10000:
                     previous_output = previous_output[:10000]
 
+                original_line_count = len(original_code.splitlines())
+                previous_line_count = len(llm_output.splitlines()) if llm_output else 0
                 attempt_messages = messages + [
                     {"role": "assistant", "content": previous_output},
                     {
                         "role": "user",
                         "content": (
-                            "Your previous response violated format requirements. "
+                            "Your previous response was rejected. "
+                            f"Reason: {rejection_reason}. "
+                            f"Original file lines: {original_line_count}. "
+                            f"Previous response lines: {previous_line_count}. "
                             "Return ONLY raw Python code for the full corrected file. "
+                            "Do not drop unrelated functions/classes from the original file. "
+                            "Preserve all existing functions/classes unless required for the fix. "
                             "Do not include explanations or markdown."
                         ),
                     },
@@ -185,15 +247,25 @@ Fix the bug and return the full corrected file.
 
             llm_output = llm_output.replace("```python", "").replace("```", "").strip()
 
-            if validate_llm_patch(llm_output):
+            is_valid_patch = validate_llm_patch(llm_output)
+            is_incomplete = looks_incomplete_patch(original_code, llm_output)
+
+            if is_valid_patch and not is_incomplete:
                 return llm_output
 
+            rejection_reason = (
+                "invalid_python_or_format"
+                if not is_valid_patch
+                else "possible_truncation_or_major_content_loss"
+            )
             log_event(
                 "generate_patch",
                 "LLM output rejected by validator",
                 {
                     "provider": provider_name,
                     "attempt": attempt + 1,
+                    "reason": rejection_reason,
+                    "possible_truncation": is_incomplete,
                 }
             )
 
@@ -258,8 +330,6 @@ def apply_patch_node(state: OpsGuardState) -> OpsGuardState:
 
     return state
 
-
-import subprocess
 
 def syntax_check_node(state: OpsGuardState) -> OpsGuardState:
     if not state.patch_content:
@@ -416,8 +486,8 @@ def generate_final_report_node(state: OpsGuardState) -> OpsGuardState:
         f.write("----------------------------------------------------\n\n")
 
         for change in state.human_readable_changes or []:
-            f.write(f"▼ Change at Line {change['line_number']}\n")
-            f.write("────────────────────────────────────────────────────\n\n")
+            f.write(f"Change at Line {change['line_number']}\n")
+            f.write("----------------------------------------------------\n\n")
 
             f.write("BEFORE\n")
             for line in change["before"].splitlines():
@@ -446,3 +516,4 @@ def generate_final_report_node(state: OpsGuardState) -> OpsGuardState:
     )
 
     return state
+

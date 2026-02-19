@@ -20,7 +20,6 @@ def call_nvidia_llm(messages):
         messages=messages,
         temperature=0.2,
         top_p=0.9,
-        max_tokens=4096,
         stream=False,  # IMPORTANT
     )
 
@@ -41,7 +40,6 @@ def call_groq_llm(messages):
         messages=messages,
         temperature=0.2,
         top_p=0.9,
-        max_tokens=4096,
         stream=False,
     )
 
