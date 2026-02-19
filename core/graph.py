@@ -15,6 +15,7 @@ from core.nodes import (
     fix_decision_node,
     generate_fail_report_node,
     generate_not_reproducible_node,
+    generate_final_report_node,
 )
 
 def build_graph():
@@ -37,10 +38,11 @@ def build_graph():
 
     graph.add_node("generate_fail_report", generate_fail_report_node)
     graph.add_node("generate_not_reproducible", generate_not_reproducible_node)
+    graph.add_node("generate_final_report", generate_final_report_node)
 
     graph.set_entry_point("setup_workspace")
 
-    graph.add_edge("generate_infra_report", END)
+    graph.add_edge("generate_infra_report", "generate_final_report")
 
     # Reproduction Flow
     graph.add_edge("setup_workspace", "generate_reproduction_script")
@@ -81,7 +83,7 @@ def build_graph():
 
     def fix_router(state: OpsGuardState):
         if state.status == Status.SUCCESS:
-            return END
+            return "generate_final_report"
         if state.fix_retries >= 3:
             return "generate_fail_report"
         return "generate_patch"
@@ -90,13 +92,14 @@ def build_graph():
         "fix_decision",
         fix_router,
         {
-            END: END,
+            "generate_final_report": "generate_final_report",
             "generate_fail_report": "generate_fail_report",
             "generate_patch": "generate_patch",
         },
     )
 
-    graph.add_edge("generate_fail_report", END)
-    graph.add_edge("generate_not_reproducible", END)
+    graph.add_edge("generate_fail_report", "generate_final_report")
+    graph.add_edge("generate_not_reproducible", "generate_final_report")
+    graph.add_edge("generate_final_report", END)
 
     return graph.compile()

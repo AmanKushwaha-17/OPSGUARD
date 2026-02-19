@@ -4,6 +4,8 @@ from core.docker_executor import execute_python
 from core.patch_engine import apply_full_file_patch
 from core.error_classifier import classify_error
 import os
+import json
+from datetime import datetime
 
 
 from core.logger import log_event
@@ -122,11 +124,11 @@ def generate_patch_node(state: OpsGuardState) -> OpsGuardState:
             "role": "system",
             "content": (
                 "You are a senior Python engineer. "
-                "Fix the bug based on the error provided. "
-                "Return ONLY the full updated file content. "
-                "Do not include explanations. "
-                "Do not include markdown. "
-                "Return raw Python code only."
+                "Fix ONLY the runtime error shown. "
+                "Make the smallest possible change required to stop the crash. "
+                "Do not refactor unrelated logic. "
+                "Return ONLY the full updated file. "
+                "No explanations. No markdown."
             ),
         },
         {
@@ -222,6 +224,7 @@ Fix the bug and return the full corrected file.
 def apply_patch_node(state: OpsGuardState) -> OpsGuardState:
     if not state.patch_content:
         state.patch_diff = ""
+        state.human_readable_changes = []
         log_event(
             "apply_patch",
             "Skipping patch apply due to invalid LLM output"
@@ -234,25 +237,22 @@ def apply_patch_node(state: OpsGuardState) -> OpsGuardState:
         state.patch_content
     )
     state.patch_diff = patch_result["diff"]
+    state.human_readable_changes = patch_result.get("changed_blocks", [])
 
     artifacts_dir = os.path.join(os.getcwd(), "artifacts")
-    os.makedirs(artifacts_dir, exist_ok=True)
+    internal_dir = os.path.join(artifacts_dir, "internal")
+    os.makedirs(internal_dir, exist_ok=True)
 
-    patch_file = os.path.join(artifacts_dir, "latest_patch.py")
-    diff_file = os.path.join(artifacts_dir, "latest_patch.diff")
+    patch_file = os.path.join(internal_dir, "latest_patch.py")
 
     with open(patch_file, "w", encoding="utf-8") as f:
         f.write(state.patch_content or "")
-
-    with open(diff_file, "w", encoding="utf-8") as f:
-        f.write(state.patch_diff or "")
 
     log_event(
         "apply_patch",
         "Saved patch artifacts",
         {
             "patch_file": patch_file,
-            "diff_file": diff_file
         }
     )
 
@@ -352,6 +352,97 @@ def generate_not_reproducible_node(state: OpsGuardState) -> OpsGuardState:
         {
             "reproduce_retries": state.reproduce_retries
         }
+    )
+
+    return state
+
+
+def generate_final_report_node(state: OpsGuardState) -> OpsGuardState:
+    artifacts_dir = os.path.join(os.getcwd(), "artifacts")
+    internal_dir = os.path.join(artifacts_dir, "internal")
+    presentation_dir = os.path.join(artifacts_dir, "presentation")
+    os.makedirs(internal_dir, exist_ok=True)
+    os.makedirs(presentation_dir, exist_ok=True)
+
+    report = {
+        "status": state.status.value,
+        "error_type": state.error_type.value if state.error_type else None,
+        "reproduce_retries": state.reproduce_retries,
+        "fix_retries": state.fix_retries,
+        "workspace_path": state.workspace_path,
+        "timestamp": datetime.utcnow().isoformat(),
+        "patch_diff_summary": None,
+        "patch_diff_file": None,
+        "judge_summary_file": None,
+        "patch_diff": state.patch_diff or "",
+        "human_readable_changes": state.human_readable_changes or [],
+    }
+
+    if state.patch_diff:
+        lines = state.patch_diff.splitlines()
+        added = sum(1 for line in lines if line.startswith("+") and not line.startswith("+++"))
+        removed = sum(1 for line in lines if line.startswith("-") and not line.startswith("---"))
+        report["patch_diff_summary"] = {
+            "lines_added": added,
+            "lines_removed": removed,
+        }
+
+    state.report = report
+
+    if state.patch_diff:
+        patch_diff_path = os.path.join(internal_dir, "patch.diff")
+        with open(patch_diff_path, "w", encoding="utf-8") as f:
+            f.write(state.patch_diff)
+        report["patch_diff_file"] = patch_diff_path
+
+    summary_path = os.path.join(presentation_dir, "judge_summary.txt")
+
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write("====================================================\n")
+        f.write("                OPSGUARD REMEDIATION REPORT\n")
+        f.write("====================================================\n\n")
+
+        f.write(f"STATUS        : {state.status.value}\n")
+        f.write(f"ERROR TYPE    : {state.error_type.value if state.error_type else 'Unknown'}\n")
+
+        if report.get("patch_diff_summary"):
+            added = report["patch_diff_summary"]["lines_added"]
+            removed = report["patch_diff_summary"]["lines_removed"]
+            f.write(f"IMPACT        : +{added} lines, -{removed} line{'s' if removed != 1 else ''}\n")
+
+        f.write("\n")
+        f.write("----------------------------------------------------\n")
+        f.write("CHANGED FILE  : app.py\n")
+        f.write("----------------------------------------------------\n\n")
+
+        for change in state.human_readable_changes or []:
+            f.write(f"▼ Change at Line {change['line_number']}\n")
+            f.write("────────────────────────────────────────────────────\n\n")
+
+            f.write("BEFORE\n")
+            for line in change["before"].splitlines():
+                f.write(f"    {line}\n")
+
+            f.write("\nAFTER\n")
+            for line in change["after"].splitlines():
+                f.write(f"    {line}\n")
+
+            f.write("\n")
+
+        f.write("====================================================\n")
+        f.write("Generated by OpsGuard\n")
+        f.write("====================================================\n")
+
+    report["judge_summary_file"] = summary_path
+    report_path = os.path.join(artifacts_dir, "final_report.json")
+
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+
+    log_event(
+        "generate_final_report",
+        "Final structured report generated",
+        {"report_path": report_path, "summary_path": summary_path},
     )
 
     return state

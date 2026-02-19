@@ -1,4 +1,6 @@
 import argparse
+import json
+import os
 from core.state import OpsGuardState
 from core.graph import build_graph
 from core.logger import log_event
@@ -13,7 +15,45 @@ def _extract_workspace_path(state_candidate) -> str | None:
     return None
 
 
+def _print_change_summary(report: dict | None):
+    print("\n====== CHANGES ======")
+
+    if not report:
+        print("No report generated.")
+        print("=====================\n")
+        return
+
+    patch_diff = report.get("patch_diff", "")
+    patch_diff_summary = report.get("patch_diff_summary")
+
+    if patch_diff_summary:
+        print(
+            "Diff summary:",
+            f"+{patch_diff_summary.get('lines_added', 0)}",
+            f"-{patch_diff_summary.get('lines_removed', 0)}",
+        )
+
+    if patch_diff:
+        print(patch_diff)
+    else:
+        print("No patch diff available for this run.")
+
+    print("=====================\n")
+
+    changes = report.get("human_readable_changes")
+    if changes:
+        print("\n====== HUMAN READABLE CHANGES ======")
+        for change in changes:
+            print(f"\nLine {change['line_number']}")
+            print("Before:")
+            print(change["before"] or "(none)")
+            print("After:")
+            print(change["after"] or "(none)")
+        print("====================================")
+
+
 def run_command(repo_path: str, error_log: str):
+    verbose = os.getenv("OPSGUARD_VERBOSE") == "1"
     log_event("CLI", "Starting OpsGuard run")
 
     # Initialize state
@@ -54,9 +94,19 @@ def run_command(repo_path: str, error_log: str):
             },
         )
 
-        print("\n====== OPSGUARD RESULT ======")
-        print(f"Status: {final_state.status.value}")
-        print("=============================")
+        if verbose:
+            print("\n====== OPSGUARD RESULT ======")
+            if final_state.report:
+                print(json.dumps(final_state.report, indent=2))
+            else:
+                print(f"Status: {final_state.status.value}")
+            print("=============================\n")
+            _print_change_summary(final_state.report)
+        else:
+            print("OpsGuard execution complete.")
+            print(f"Status: {final_state.status.value}")
+            print("Presentation report saved to: artifacts/presentation/judge_summary.txt")
+            print("Machine report: artifacts/final_report.json")
     finally:
         workspace_path = (
             _extract_workspace_path(final_state)

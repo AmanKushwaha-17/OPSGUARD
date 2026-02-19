@@ -1,15 +1,13 @@
-# def parse_input(value):
-#     return int(value)
+def parse_input(value):
+    return int(value)
 
-# if __name__ == "__main__":
-#     print(parse_input("abc"))
-
-
-def divide(a, b):
+def safe_divide(a, b):
     return a / b
 
+def compute(data):
+    nums = [parse_input(x) for x in data]
+    return safe_divide(sum(nums), len(nums))
+
 if __name__ == "__main__":
-    print(divide(10, 0))
-
-
-
+    dataset = ["10", "abc", "30"]
+    print(compute(dataset))

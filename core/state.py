@@ -37,9 +37,11 @@ class OpsGuardState(BaseModel):
     # ---- Fix Phase ----
     patch_content: Optional[str] = None
     patch_diff: Optional[str] = None
+    human_readable_changes: Optional[list] = None
     fix_result: Optional[Dict] = None
     fix_verified: bool = False
     fix_retries: int = 0
 
     # ---- Final Status ----
     status: Status = Field(default=Status.RUNNING)
+    report: Optional[Dict] = None

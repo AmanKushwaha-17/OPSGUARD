@@ -1,30 +1,3 @@
-# from core.docker_executor import execute_python
-
-# result = execute_python("demo_repo", "app.py")
-
-# print("Exit Code:", result["exit_code"])
-# print("STDOUT:\n", result["stdout"])
-# print("STDERR:\n", result["stderr"])
-
-
-# from core.workspace import create_workspace, cleanup_workspace
-# from core.docker_executor import execute_python
-
-# workspace = create_workspace("demo_repo")
-
-# print("Workspace created at:", workspace)
-
-# result = execute_python(workspace, "app.py")
-
-# print("Exit Code:", result["exit_code"])
-# print("STDERR:", result["stderr"])
-
-# cleanup_workspace(workspace)
-
-# print("Workspace cleaned up.")
-
-
-
 from core.workspace import create_workspace, cleanup_workspace
 from core.docker_executor import execute_python
 from core.patch_engine import apply_full_file_patch
