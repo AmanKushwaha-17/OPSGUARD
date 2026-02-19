@@ -14,6 +14,7 @@ from core.nodes import (
     execute_fix_test_node,
     fix_decision_node,
     generate_fail_report_node,
+    generate_not_reproducible_node,
 )
 
 def build_graph():
@@ -35,47 +36,42 @@ def build_graph():
     graph.add_node("fix_decision", fix_decision_node)
 
     graph.add_node("generate_fail_report", generate_fail_report_node)
+    graph.add_node("generate_not_reproducible", generate_not_reproducible_node)
 
-    graph.set_entry_point("classify_error")
-
-    # Error Routing
-    def error_router(state: OpsGuardState):
-        if state.error_type == ErrorType.INFRA_ERROR:
-            return "generate_infra_report"
-        return "setup_workspace"
-
-    graph.add_conditional_edges(
-        "classify_error",
-        error_router,
-        {
-            "generate_infra_report": "generate_infra_report",
-            "setup_workspace": "setup_workspace",
-        },
-    )
+    graph.set_entry_point("setup_workspace")
 
     graph.add_edge("generate_infra_report", END)
 
     # Reproduction Flow
     graph.add_edge("setup_workspace", "generate_reproduction_script")
     graph.add_edge("generate_reproduction_script", "execute_reproduction")
-    graph.add_edge("execute_reproduction", "reproduction_decision")
+    graph.add_edge("execute_reproduction", "classify_error")
+    graph.add_edge("classify_error", "reproduction_decision")
 
     def reproduction_router(state: OpsGuardState):
+        if state.error_type == ErrorType.INFRA_ERROR:
+            return "generate_infra_report"
+
         if state.reproduction_verified:
             return "generate_patch"
+
         if state.reproduce_retries >= 2:
-            return "generate_fail_report"
+            return "generate_not_reproducible"
+
         return "generate_reproduction_script"
+
 
     graph.add_conditional_edges(
         "reproduction_decision",
         reproduction_router,
         {
             "generate_patch": "generate_patch",
-            "generate_fail_report": "generate_fail_report",
+            "generate_not_reproducible": "generate_not_reproducible",
             "generate_reproduction_script": "generate_reproduction_script",
+            "generate_infra_report": "generate_infra_report",
         },
     )
+
 
     # Fix Flow
     graph.add_edge("generate_patch", "apply_patch")
@@ -101,5 +97,6 @@ def build_graph():
     )
 
     graph.add_edge("generate_fail_report", END)
+    graph.add_edge("generate_not_reproducible", END)
 
     return graph.compile()

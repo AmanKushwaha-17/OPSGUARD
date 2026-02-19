@@ -8,6 +8,7 @@ class Status(str, Enum):
     INFRA_STOP = "INFRA_STOP"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
+    NOT_REPRODUCIBLE = "NOT_REPRODUCIBLE"
 
 
 class ErrorType(str, Enum):

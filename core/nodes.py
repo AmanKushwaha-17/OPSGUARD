@@ -199,3 +199,17 @@ def generate_fail_report_node(state: OpsGuardState) -> OpsGuardState:
     )
 
     return state
+
+
+def generate_not_reproducible_node(state: OpsGuardState) -> OpsGuardState:
+    state.status = Status.NOT_REPRODUCIBLE
+
+    log_event(
+        "generate_not_reproducible",
+        "Issue could not be reproduced in sandbox",
+        {
+            "reproduce_retries": state.reproduce_retries
+        }
+    )
+
+    return state
