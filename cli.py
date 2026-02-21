@@ -52,7 +52,7 @@ def _print_change_summary(report: dict | None):
         print("====================================")
 
 
-def run_command(repo_path: str, error_log: str):
+def run_command(repo_path: str, error_log: str, entry_file: str, mode: str):
     verbose = os.getenv("OPSGUARD_VERBOSE") == "1"
     log_event("CLI", "Starting OpsGuard run")
 
@@ -60,6 +60,8 @@ def run_command(repo_path: str, error_log: str):
     initial_state = OpsGuardState(
         repo_path=repo_path,
         error_log=error_log,
+        entry_file=entry_file,
+        verification_mode=mode,
     )
 
     # Build graph
@@ -153,9 +155,22 @@ def main():
         help="Raw error traceback string"
     )
 
+    parser.add_argument(
+        "--mode",
+        default="entry",
+        choices=["entry", "pytest"],
+        help="Verification mode: run entry file (default) or pytest suite"
+    )
+
+    parser.add_argument(
+        "--entry",
+        default="app.py",
+        help="Entry Python file to execute inside the repository"
+    )
+
     args = parser.parse_args()
 
-    run_command(args.repo, args.error)
+    run_command(args.repo, args.error, args.entry, args.mode)
 
 
 if __name__ == "__main__":

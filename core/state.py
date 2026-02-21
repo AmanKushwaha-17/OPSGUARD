@@ -21,6 +21,8 @@ class OpsGuardState(BaseModel):
     # ---- Input ----
     repo_path: str
     error_log: str
+    entry_file: str = "app.py"
+    verification_mode: str = "entry"
 
     # ---- Classification ----
     error_type: Optional[ErrorType] = None

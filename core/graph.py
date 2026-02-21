@@ -44,8 +44,22 @@ def build_graph():
 
     graph.add_edge("generate_infra_report", "generate_final_report")
 
+    # Early validation: if entry file is missing, skip straight to final report
+    def setup_router(state: OpsGuardState):
+        if state.status == Status.FAILED:
+            return "generate_final_report"
+        return "generate_reproduction_script"
+
+    graph.add_conditional_edges(
+        "setup_workspace",
+        setup_router,
+        {
+            "generate_final_report": "generate_final_report",
+            "generate_reproduction_script": "generate_reproduction_script",
+        },
+    )
+
     # Reproduction Flow
-    graph.add_edge("setup_workspace", "generate_reproduction_script")
     graph.add_edge("generate_reproduction_script", "execute_reproduction")
     graph.add_edge("execute_reproduction", "classify_error")
     graph.add_edge("classify_error", "reproduction_decision")
