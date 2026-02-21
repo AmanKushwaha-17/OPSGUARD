@@ -1,12 +1,70 @@
 # OpsGuard
 
-**A zero-trust AI remediation engine that refuses to ship a fix it cannot prove.**
+**Zero-trust AI remediation with deterministic verification.**
 
-OpsGuard follows a strict scientific-method loop — reproduce the bug in an isolated Docker sandbox, propose a fix via LLM, verify the fix passes in the same sandbox, then generate proof artifacts. If a fix cannot be proven, OpsGuard refuses to proceed. No exceptions.
+*From crash detection to verified fix — without trusting the AI blindly.*
+
+OpsGuard automatically reproduces production crashes inside Docker, generates an AI-assisted fix, and **refuses to accept it** unless the fix is structurally valid and runtime-verified. No patch ships without proof.
 
 ---
 
-## Why OpsGuard?
+## Real-World Scenario
+
+A monitoring system detects a production crash:
+
+```
+TypeError: unsupported operand type(s) for +: 'int' and 'str'
+```
+
+OpsGuard executes a deterministic remediation workflow:
+
+1. **Clones** the repository into an isolated, ephemeral workspace
+2. **Reproduces** the failure inside a Docker sandbox — deterministically
+3. **Classifies** the error: `CODE_ERROR` → proceed, `INFRA_ERROR` → abort early
+4. **Generates** a minimal patch via LLM (NVIDIA NIM / Groq fallback)
+5. **Validates** the patch: AST parse + syntax check + truncation detection
+6. **Verifies** the fix passes Docker execution or a full pytest suite
+7. **Produces** an auditable remediation report with before/after diff
+
+**If any verification gate fails — the fix is rejected and retried. If retries are exhausted — OpsGuard reports failure instead of shipping a broken patch.**
+
+---
+
+## What OpsGuard Guarantees
+
+| | Guarantee |
+|:---:|:---|
+| ✔ | No patch accepted without Docker `exit_code == 0` |
+| ✔ | No unsafe or third-party imports introduced by LLM |
+| ✔ | No structurally truncated or content-losing patches |
+| ✔ | No infinite fix loops — bounded retry limits enforced |
+| ✔ | Full audit trail for every remediation attempt |
+
+---
+
+## Why This Is Different
+
+Unlike typical AI code fixers:
+
+- **OpsGuard does not trust LLM output** — every response is validated before touching the filesystem
+- **Fixes are rejected if Docker cannot prove them** — `exit_code != 0` means retry or abort
+- **Structural truncation is detected and blocked** — partial responses are caught before patching
+- **Third-party imports are forbidden** — LLM cannot introduce dependency drift
+- **Fix loops are bounded and deterministic** — 3 fix retries, 2 reproduction retries, then hard stop
+- **Infrastructure errors abort early** — OpsGuard will not patch what isn't a code problem
+
+---
+
+## Who This Is For
+
+- **DevOps teams** who want AI-assisted remediation without unsafe automation
+- **Platform engineers** building safe CI/CD pipelines with enforceable fix gates
+- **AI infrastructure teams** integrating LLM patching into production systems
+- **Teams exploring safe AI automation patterns** where correctness must be proven, not assumed
+
+---
+
+## Why OpsGuard Exists
 
 Current tooling is fragmented:
 
@@ -316,3 +374,9 @@ opsguard/
 - **Test suite quality** — pytest mode enforces what your tests define. Weak tests = weak regression detection.
 - **GitHub integration** — produces `patch.diff` and summary artifacts only. PR automation is out of current scope.
 - **`NO_ERROR` path** — follows reproduction retry flow; requires stderr presence for confident classification.
+
+---
+
+## Future Direction
+
+OpsGuard is designed to evolve into a CI-integrated, policy-driven remediation controller capable of validating multi-file patches, enforcing organization-wide safety constraints, and integrating directly into PR workflows as an automated verification gate.
